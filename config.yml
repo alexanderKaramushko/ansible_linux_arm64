@@ -1,0 +1,99 @@
+- name: Preconfig
+  hosts: demo
+  tasks:
+    - name: Установка Docker
+      block:
+        # Установка основных пакетов Ubuntu
+        - name: Добавление Universe
+          ansible.builtin.apt_repository:
+            repo: "deb http://us.archive.ubuntu.com/ubuntu/ {{ ansible_distribution_release }} universe"
+            state: present
+
+        # Обновление репозиториев apt
+        - name: Run apt upgrade
+          ansible.builtin.apt:
+            upgrade: "yes"
+            update_cache: yes
+            cache_valid_time: 432000
+
+        - name: Установка дополнительных пакетов
+          ansible.builtin.apt:
+            pkg:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gnupg
+              - lsb-release
+
+        # Добавление директории /etc/apt/keyrings для хранения ключей
+        - name: Добавление директории для хранения ключей
+          ansible.builtin.command: install -m 0755 -d /etc/apt/keyrings
+
+        # Получение официального GPG-ключа Docker-а и сохранение в директорию /etc/apt/keyrings
+        - name: Получить ключ
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            dest: /etc/apt/keyrings/docker.gpg
+
+        - name: Версия дистрибутива
+          debug:
+            msg: "{{ ansible_distribution_release }}"
+
+        - name: Разрешение на изменение sources.list.d
+          ansible.builtin.command: chmod 777 /etc/apt/sources.list.d
+
+        # Добавление репозитория для в sources.list.d для установки Docker
+        - name: Добавление Docker-репозитория
+          ansible.builtin.apt_repository:
+            repo: "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+            filename: docker
+            update_cache: yes
+
+        - name: Инсталляция Docker
+          ansible.builtin.apt:
+            name: docker-ce
+      become: true
+      become_user: root
+
+    # Проверка работы установленного Docker
+    - name: Перезапуск Docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+        enabled: yes
+      become: true
+      become_user: root
+
+    - name: Установка docker-compose
+      block:
+        - name: Получить последнюю версию docker-compose
+          ansible.builtin.uri:
+            url: https://api.github.com/repos/docker/compose/releases/latest
+            body_format: json
+          register: page
+
+        - name: Инсталляция docker-compose
+          ansible.builtin.get_url:
+            url: "https://github.com/docker/compose/releases/download/{{ page.json.tag_name }}/docker-compose-linux-aarch64"
+            dest: .docker/cli-plugins/docker-compose
+            mode: 0755
+      become: true
+      become_user: root
+
+    - name: Завершение установки
+      block:
+        - name: Добавление пользователя в группу Docker
+          ansible.builtin.user:
+            name: "{{ ansible_user }}"
+            group: docker
+            append: true
+
+        # Перезагрузка для активации новых групп
+        - name: Перезагрузка виртуальной машины
+          ansible.builtin.reboot:
+      become: true
+      become_user: root
+
+
+        
